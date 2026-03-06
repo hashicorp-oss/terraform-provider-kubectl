@@ -17,7 +17,7 @@ jobs:
         run: make fmt
 
       - name: Run linters
-        run: make lint
+        uses: golangci/golangci-lint-action@v9
 
       - name: Run unit tests
         run: make test
