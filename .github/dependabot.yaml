@@ -10,8 +10,8 @@ updates:
           - minor
           - patch
     labels: [dependencies]
-    assignees: [alekc]
-    reviewers: [alekc]
+    assignees: [appkins]
+    reviewers: [appkins]
     commit-message:
       prefix: "Dependencies:"
     schedule:
@@ -26,8 +26,8 @@ updates:
           - minor
           - patch
     labels: [dependencies]
-    assignees: [alekc]
-    reviewers: [alekc]
+    assignees: [appkins]
+    reviewers: [appkins]
     commit-message:
       prefix: "Dependencies:"
     schedule:

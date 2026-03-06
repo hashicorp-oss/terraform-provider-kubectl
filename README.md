@@ -115,13 +115,13 @@ Now we need to tell Terraform to override remote versions with our local build. 
 ```hcl
  provider_installation {
   dev_overrides {
-    "hashicorp-oss/kubectl" = "/Users/alekc/go/bin/"
+    "hashicorp-oss/kubectl" = "/Users/appkins/go/bin/"
   }
   direct {}
 }
 ```
 
-change "/Users/alekc/go/bin/" with the path where your go has placed built executable. After that all you have to do is run
+change "/Users/appkins/go/bin/" with the path where your go has placed built executable. After that all you have to do is run
 `terraform init` and you will be using the new version.
 
 If all went well, you should see a following message during the apply:
@@ -131,7 +131,7 @@ If all went well, you should see a following message during the apply:
 │ Warning: Provider development overrides are in effect
 │ 
 │ The following provider development overrides are set in the CLI configuration:
-│  - hashicorp-oss/kubectl in /Users/alekc/go/bin
+│  - hashicorp-oss/kubectl in /Users/appkins/go/bin
 
 ```
 
