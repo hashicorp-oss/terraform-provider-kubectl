@@ -210,7 +210,7 @@ func testAccRandomName(prefix string) string {
 
 // -- Config Helpers --
 
-func configMapConfig(name, namespace, key, value string) string {
+func configMapConfig(name, namespace, key, value string) string { //nolint:unparam
 	return fmt.Sprintf(`
 resource "kubectl_manifest" "test" {
   manifest = {

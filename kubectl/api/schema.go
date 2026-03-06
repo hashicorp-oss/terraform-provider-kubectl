@@ -76,14 +76,9 @@ func getTypeFromSchema(
 	// Check if attribute type is tagged as 'x-kubernetes-preserve-unknown-fields' in OpenAPI.
 	// If so, we add a type hint to indicate this and return DynamicPseudoType for this attribute,
 	// since we have no further structural information about it.
-	if xpufJSON, ok := elem.Extensions[PreserveUnknownFieldsLabel]; ok {
-		var xpuf bool
-		v, err := xpufJSON.(json.RawMessage).MarshalJSON()
-		if err == nil {
-			err = json.Unmarshal(v, &xpuf)
-			if err == nil && xpuf {
-				th[ap.String()] = PreserveUnknownFieldsLabel
-			}
+	if xpuf, ok := elem.Extensions[PreserveUnknownFieldsLabel]; ok {
+		if extensionBool(xpuf) {
+			th[ap.String()] = PreserveUnknownFieldsLabel
 		}
 	}
 
@@ -113,13 +108,7 @@ func getTypeFromSchema(
 
 	default:
 		if xv, ok := elem.Extensions["x-kubernetes-int-or-string"]; ok {
-			xb, err := xv.(json.RawMessage).MarshalJSON()
-			if err != nil {
-				return tftypes.DynamicPseudoType, err
-			}
-			var x bool
-			err = json.Unmarshal(xb, &x)
-			if err == nil && x {
+			if extensionBool(xv) {
 				th[ap.String()] = "io.k8s.apimachinery.pkg.util.intstr.IntOrString"
 				return tftypes.String, nil
 			}
@@ -214,6 +203,22 @@ func getTypeFromSchema(
 	}
 
 	return nil, fmt.Errorf("unknown type: %s", elem.Type)
+}
+
+// extensionBool safely extracts a boolean from an OpenAPI extension value.
+// Extension values may be bool, json.RawMessage, or other types depending on
+// the kin-openapi version. Returns false for nil or non-boolean values.
+func extensionBool(v any) bool {
+	switch val := v.(type) {
+	case bool:
+		return val
+	case json.RawMessage:
+		var b bool
+		if err := json.Unmarshal(val, &b); err == nil {
+			return b
+		}
+	}
+	return false
 }
 
 func isTypeFullyKnown(t tftypes.Type) bool {
