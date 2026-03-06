@@ -8,6 +8,7 @@ import (
 
 	"github.com/hashicorp-oss/terraform-provider-kubectl/kubectl/morph"
 	"github.com/hashicorp-oss/terraform-provider-kubectl/kubectl/payload"
+	"github.com/hashicorp-oss/terraform-provider-kubectl/kubectl/util"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -161,7 +162,7 @@ func (d *manifestDataSource) Read(
 	gvr := rmapping.Resource
 
 	// Determine if resource is namespaced
-	ns, err := IsResourceNamespaced(gvk, rm)
+	ns, err := util.IsResourceNamespaced(gvk, rm)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Failed to determine if resource is namespaced",
@@ -190,7 +191,7 @@ func (d *manifestDataSource) Read(
 	// complete the resource-specific OpenAPI schema is (e.g. CRDs that only
 	// define spec). The resource-specific OpenAPI types take precedence.
 	if obj, ok := objectType.(tftypes.Object); ok {
-		atts := partialObjectMetaTFTypes()
+		atts := PartialObjectMetaTFTypes()
 		maps.Copy(atts, obj.AttributeTypes)
 		objectType = tftypes.Object{AttributeTypes: atts}
 	}
@@ -260,9 +261,9 @@ func (d *manifestDataSource) Read(
 	resp.Diagnostics.Append(diags...)
 }
 
-// objectMetaTFTypes returns the tftypes.Type representation of metav1.ObjectMeta.
+// ObjectMetaTFTypes returns the tftypes.Type representation of metav1.ObjectMeta.
 // Fields mirror the JSON serialization of the ObjectMeta struct.
-func objectMetaTFTypes() tftypes.Object {
+func ObjectMetaTFTypes() tftypes.Object {
 	return tftypes.Object{AttributeTypes: map[string]tftypes.Type{
 		"name":                       tftypes.String,
 		"generateName":               tftypes.String,
@@ -301,15 +302,15 @@ func objectMetaTFTypes() tftypes.Object {
 	}}
 }
 
-// partialObjectMetaTFTypes returns the tftypes.Type map for the top-level
+// PartialObjectMetaTFTypes returns the tftypes.Type map for the top-level
 // fields of metav1.PartialObjectMetadata (TypeMeta inline + ObjectMeta).
 // This is used as a base when merging with a resource-specific OpenAPI type
 // to ensure apiVersion, kind, and metadata are always present.
-func partialObjectMetaTFTypes() map[string]tftypes.Type {
+func PartialObjectMetaTFTypes() map[string]tftypes.Type {
 	return map[string]tftypes.Type{
 		"apiVersion": tftypes.String,
 		"kind":       tftypes.String,
-		"metadata":   objectMetaTFTypes(),
+		"metadata":   ObjectMetaTFTypes(),
 	}
 }
 

@@ -775,8 +775,7 @@ resource "kubectl_manifest" "app_service" {
 - `error` (Attributes) Define error conditions that are checked continuously while waiting for success conditions. If any error condition matches, the apply fails immediately. Use this to detect error states such as CrashLoopBackOff or Failed status. (see [below for nested schema](#nestedatt--error))
 - `field_manager` (Attributes) Configure field manager options for server-side apply. (see [below for nested schema](#nestedatt--field_manager))
 - `fields` (Attributes) Configure field tracking options. (see [below for nested schema](#nestedatt--fields))
-- `set` (Attributes List) Field overrides applied on top of the manifest before sending to the Kubernetes API. Each entry specifies a dot-separated field path and a YAML-encoded value to set. Useful for fields that are defaulted or mutated by the API server and need to be kept in sync with the plan. (see [below for nested schema](#nestedatt--set))
-- `set_wo` (Attributes List, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Write-only field overrides applied on top of the manifest before sending to the Kubernetes API. Values are YAML-encoded strings that are not persisted in Terraform state. The field paths are masked from the `object` attribute on read. Use this for sensitive values such as passwords, API keys, or secrets. (see [below for nested schema](#nestedatt--set_wo))
+- `manifest_wo` (Dynamic, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Write-only manifest overrides that are deep merged into `manifest` before applying to the Kubernetes API. Values are not persisted in Terraform state. Use the same structure as `manifest` — only include the fields you want to inject as write-only (e.g., secrets, passwords). Example: `manifest_wo = { data = { password = base64encode("secret") } }`
 - `timeouts` (Attributes) (see [below for nested schema](#nestedatt--timeouts))
 - `wait` (Attributes) Configure waiter options. The apply will block until success conditions are met or the timeout is reached. (see [below for nested schema](#nestedatt--wait))
 
@@ -842,24 +841,6 @@ Optional:
 
 - `computed` (List of String) List of manifest fields whose values may be altered by the API server during apply. Defaults to: `["metadata.annotations", "metadata.labels"]`
 - `immutable` (List of String) List of manifest field paths that are immutable after creation. If any of these fields change, the resource will be replaced (destroyed and re-created). Uses dot-separated paths (e.g., `spec.selector`).
-
-
-<a id="nestedatt--set"></a>
-### Nested Schema for `set`
-
-Required:
-
-- `name` (String) Dot-separated manifest field path (e.g., `spec.replicas`, `metadata.labels`).
-- `value` (String) YAML-encoded value to set at the given field path. Scalar values can be provided directly (e.g., `"3"`, `"true"`, `"hello"`). Complex values use YAML syntax (e.g., `"key: value"`).
-
-
-<a id="nestedatt--set_wo"></a>
-### Nested Schema for `set_wo`
-
-Required:
-
-- `name` (String, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Dot-separated manifest field path (e.g., `data.password`, `spec.template.spec.containers.0.env.0.value`).
-- `value` (String, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) YAML-encoded sensitive value to set at the given field path. Not persisted in state.
 
 
 <a id="nestedatt--timeouts"></a>

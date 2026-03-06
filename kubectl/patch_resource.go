@@ -16,7 +16,6 @@ import (
 	yamlpkg "github.com/hashicorp-oss/terraform-provider-kubectl/kubectl/yaml"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
-	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -776,16 +775,4 @@ func (r *patchResource) setObjectFromResult(
 	r.setID(model)
 
 	return nil
-}
-
-// patchFieldManagerBlockObjectType returns the attr.Type for the field_manager block.
-//
-//nolint:unused
-func patchFieldManagerBlockObjectType() attr.Type {
-	return types.ObjectType{
-		AttrTypes: map[string]attr.Type{
-			"name":            types.StringType,
-			"force_conflicts": types.BoolType,
-		},
-	}
 }

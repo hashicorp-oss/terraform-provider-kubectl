@@ -5,11 +5,14 @@ package kubectl_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"testing"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
+	"github.com/hashicorp-oss/terraform-provider-kubectl/kubectl"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1478,4 +1481,340 @@ resource "kubectl_manifest" "test" {
   }
 }
 `, name)
+}
+
+func TestErrorConditionError_implements_error(t *testing.T) {
+	var err error = &kubectl.MatchingConditionError{Msg: "test error"}
+	if err.Error() != "test error" {
+		t.Fatalf("expected 'test error', got %q", err.Error())
+	}
+}
+
+func TestErrorConditionError_detectable_via_errorsAs(t *testing.T) {
+	original := &kubectl.MatchingConditionError{Msg: "field matched"}
+	wrapped := fmt.Errorf("failed to wait: %w", original)
+
+	var ece *kubectl.MatchingConditionError
+	if !errors.As(wrapped, &ece) {
+		t.Fatal("errors.As should detect errorConditionError through wrapping")
+	}
+	if ece.Msg != "field matched" {
+		t.Fatalf("unexpected message: %q", ece.Msg)
+	}
+}
+
+func TestErrorConditionError_not_detected_for_other_errors(t *testing.T) {
+	other := fmt.Errorf("some other error")
+	var ece *kubectl.MatchingConditionError
+	if errors.As(other, &ece) {
+		t.Fatal("errors.As should NOT detect errorConditionError for unrelated errors")
+	}
+}
+
+func TestErrorConditionError_survives_backoff_permanent(t *testing.T) {
+	original := &kubectl.MatchingConditionError{Msg: "condition met"}
+	permanent := backoff.Permanent(original)
+
+	// After backoff.Retry returns a Permanent error, the inner error is unwrapped.
+	// Verify we can still detect the errorConditionError.
+	var ece *kubectl.MatchingConditionError
+	if !errors.As(permanent, &ece) {
+		t.Fatal("errors.As should detect errorConditionError through backoff.Permanent wrapping")
+	}
+}
+
+func TestErrorConditionError_double_wrapped(t *testing.T) {
+	original := &kubectl.MatchingConditionError{Msg: "crash loop"}
+	wrapped := fmt.Errorf("failed to wait for conditions: %w",
+		fmt.Errorf("wait error: %w", original))
+
+	var ece *kubectl.MatchingConditionError
+	if !errors.As(wrapped, &ece) {
+		t.Fatal("errors.As should detect errorConditionError through multiple layers of wrapping")
+	}
+	if ece.Msg != "crash loop" {
+		t.Fatalf("unexpected message: %q", ece.Msg)
+	}
+}
+
+// --- manifest_wo Tests ---
+
+func TestAccResourceKubectlManifest_manifestWo_basic(t *testing.T) {
+	t.Parallel()
+
+	name := testAccRandomName("test-mwo-basic")
+	resourceName := "kubectl_manifest.test"
+	gvr := k8sschema.GroupVersionResource{Version: "v1", Resource: "configmaps"}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { preCheck(t) },
+		ProtoV6ProviderFactories: integrationProviderCfg,
+		CheckDestroy:             testAccCheckManifestDestroy(gvr, "default", name),
+		Steps: []resource.TestStep{
+			{
+				// manifest_wo should deep-merge "password" into the ConfigMap's data.
+				Config: testAccManifestWoBasic(name, "secret-value"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet(resourceName, "id"),
+					// Verify the resource was created on the server with the merged data.
+					testAccCheckK8sField(gvr, "default", name, "data.public", "visible"),
+					testAccCheckK8sField(gvr, "default", name, "data.password", "secret-value"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccResourceKubectlManifest_manifestWo_update(t *testing.T) {
+	t.Parallel()
+
+	name := testAccRandomName("test-mwo-update")
+	resourceName := "kubectl_manifest.test"
+	gvr := k8sschema.GroupVersionResource{Version: "v1", Resource: "configmaps"}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { preCheck(t) },
+		ProtoV6ProviderFactories: integrationProviderCfg,
+		CheckDestroy:             testAccCheckManifestDestroy(gvr, "default", name),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccManifestWoBasic(name, "secret-v1"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet(resourceName, "id"),
+					testAccCheckK8sField(gvr, "default", name, "data.password", "secret-v1"),
+				),
+			},
+			{
+				// Changing manifest_wo should trigger an update.
+				Config: testAccManifestWoBasic(name, "secret-v2"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet(resourceName, "id"),
+					testAccCheckK8sField(gvr, "default", name, "data.password", "secret-v2"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccResourceKubectlManifest_manifestWo_nestedMerge(t *testing.T) {
+	t.Parallel()
+
+	name := testAccRandomName("test-mwo-nested")
+	resourceName := "kubectl_manifest.test"
+	gvr := k8sschema.GroupVersionResource{Version: "v1", Resource: "configmaps"}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { preCheck(t) },
+		ProtoV6ProviderFactories: integrationProviderCfg,
+		CheckDestroy:             testAccCheckManifestDestroy(gvr, "default", name),
+		Steps: []resource.TestStep{
+			{
+				// manifest provides data.public, manifest_wo provides data.secret.
+				// They should be deep-merged under data.
+				Config: testAccManifestWoNested(name),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet(resourceName, "id"),
+					testAccCheckK8sField(gvr, "default", name, "data.public", "visible"),
+					testAccCheckK8sField(gvr, "default", name, "data.secret", "hidden"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccResourceKubectlManifest_manifestWo_deepNestedObject(t *testing.T) {
+	t.Parallel()
+
+	name := testAccRandomName("test-mwo-deep")
+	resourceName := "kubectl_manifest.test"
+	gvr := k8sschema.GroupVersionResource{Version: "v1", Resource: "configmaps"}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { preCheck(t) },
+		ProtoV6ProviderFactories: integrationProviderCfg,
+		CheckDestroy:             testAccCheckManifestDestroy(gvr, "default", name),
+		Steps: []resource.TestStep{
+			{
+				// manifest defines metadata.labels.app and data.public.
+				// manifest_wo adds metadata.labels.secret-label and data.token.
+				// Deep merge should preserve both manifest and manifest_wo values
+				// at every nesting level.
+				Config: testAccManifestWoDeepNested(name, "my-token-value"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet(resourceName, "id"),
+					testAccCheckK8sField(gvr, "default", name, "metadata.labels.app", "myapp"),
+					testAccCheckK8sField(
+						gvr,
+						"default",
+						name,
+						"metadata.labels.secret-label",
+						"wo-injected",
+					),
+					testAccCheckK8sField(gvr, "default", name, "data.public", "visible"),
+					testAccCheckK8sField(gvr, "default", name, "data.token", "my-token-value"),
+				),
+			},
+			{
+				// Update the write-only token — should trigger an update.
+				Config: testAccManifestWoDeepNested(name, "updated-token"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet(resourceName, "id"),
+					testAccCheckK8sField(gvr, "default", name, "data.token", "updated-token"),
+					// Existing fields should be preserved.
+					testAccCheckK8sField(gvr, "default", name, "data.public", "visible"),
+					testAccCheckK8sField(gvr, "default", name, "metadata.labels.app", "myapp"),
+				),
+			},
+		},
+	})
+}
+
+// --- manifest_wo config helpers ---
+
+func testAccManifestWoDeepNested(name, token string) string {
+	return fmt.Sprintf(`
+resource "kubectl_manifest" "test" {
+  manifest = {
+    apiVersion = "v1"
+    kind       = "ConfigMap"
+    metadata = {
+      name      = %q
+      namespace = "default"
+      labels = {
+        app = "myapp"
+      }
+    }
+    data = {
+      public = "visible"
+    }
+  }
+
+  manifest_wo = {
+    metadata = {
+      labels = {
+        "secret-label" = "wo-injected"
+      }
+    }
+    data = {
+      token = %q
+    }
+  }
+}
+`, name, token)
+}
+
+func testAccManifestWoBasic(name, password string) string {
+	return fmt.Sprintf(`
+resource "kubectl_manifest" "test" {
+  manifest = {
+    apiVersion = "v1"
+    kind       = "ConfigMap"
+    metadata = {
+      name      = %q
+      namespace = "default"
+    }
+    data = {
+      public = "visible"
+    }
+  }
+
+  manifest_wo = {
+    data = {
+      password = %q
+    }
+  }
+}
+`, name, password)
+}
+
+func testAccManifestWoNested(name string) string {
+	return fmt.Sprintf(`
+resource "kubectl_manifest" "test" {
+  manifest = {
+    apiVersion = "v1"
+    kind       = "ConfigMap"
+    metadata = {
+      name      = %q
+      namespace = "default"
+    }
+    data = {
+      public = "visible"
+    }
+  }
+
+  manifest_wo = {
+    data = {
+      secret = "hidden"
+    }
+  }
+}
+`, name)
+}
+
+// testAccCheckK8sField verifies a specific field value on a Kubernetes resource.
+func testAccCheckK8sField(
+	gvr k8sschema.GroupVersionResource,
+	namespace, name, fieldPath, expected string, //nolint:unparam
+) resource.TestCheckFunc {
+	return func(_ *terraform.State) error {
+		ctx := context.Background()
+		obj, err := integrationK8sClient.Resource(gvr).
+			Namespace(namespace).
+			Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to get resource %s/%s: %w", namespace, name, err)
+		}
+
+		// Navigate the field path (supports dot-separated paths like "data.password").
+		parts := splitFieldPath(fieldPath)
+		current := obj.Object
+		for i, part := range parts {
+			if i == len(parts)-1 {
+				// Leaf — check the value.
+				val, ok := current[part]
+				if !ok {
+					return fmt.Errorf(
+						"field %q not found in resource %s/%s (available keys: %v)",
+						fieldPath, namespace, name, mapKeys(current),
+					)
+				}
+				strVal := fmt.Sprintf("%v", val)
+				if strVal != expected {
+					return fmt.Errorf(
+						"field %q = %q, want %q",
+						fieldPath, strVal, expected,
+					)
+				}
+				return nil
+			}
+			// Non-leaf — descend into nested map.
+			sub, ok := current[part].(map[string]any)
+			if !ok {
+				return fmt.Errorf(
+					"field %q: segment %q is not a map (type %T)",
+					fieldPath, part, current[part],
+				)
+			}
+			current = sub
+		}
+		return fmt.Errorf("field path %q is empty", fieldPath)
+	}
+}
+
+func splitFieldPath(path string) []string {
+	var parts []string
+	for _, p := range regexp.MustCompile(`\.`).Split(path, -1) {
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return parts
+}
+
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
