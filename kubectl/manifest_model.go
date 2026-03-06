@@ -151,6 +151,9 @@ func extractManifestMetadataField(
 	}
 
 	if val, ok := metadataMap[fieldName]; ok {
+		if val == nil {
+			return "", nil
+		}
 		if strVal, ok := val.(string); ok {
 			return strVal, nil
 		}
